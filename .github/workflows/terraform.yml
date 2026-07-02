@@ -35,5 +35,9 @@ jobs:
         run: terraform validate
 
       - name: Terraform plan
-        run: terraform plan -input=false -var="aws_region=us-east-1"
+        run: |
+          terraform plan -input=false \
+            -var="aws_region=us-east-1" \
+            -var="flow_name=tf-mc-srt-listener-flow" \
+            -var="srt_port=5000"
 
