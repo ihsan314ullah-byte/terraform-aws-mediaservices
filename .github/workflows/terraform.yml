@@ -29,10 +29,11 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: Terraform init
-        run: terraform init
+        run: terraform init -input=false
 
       - name: Terraform validate
         run: terraform validate
 
       - name: Terraform plan
-        run: terraform plan
+        run: terraform plan -input=false -var="aws_region=us-east-1"
+
