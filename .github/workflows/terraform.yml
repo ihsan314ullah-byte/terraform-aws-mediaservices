@@ -7,18 +7,24 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   terraform-check:
     name: Terraform Format Validate Plan
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: .
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::145185392705:role/GitHubActionsTerraformMediaServicesRole
+          aws-region: us-east-1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
@@ -40,4 +46,3 @@ jobs:
             -var="aws_region=us-east-1" \
             -var="flow_name=tf-mc-srt-listener-flow" \
             -var="srt_port=5000"
-
