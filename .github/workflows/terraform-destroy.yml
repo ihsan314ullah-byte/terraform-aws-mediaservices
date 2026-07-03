@@ -1,0 +1,39 @@
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-destroy:
+    name: Manual Terraform Destroy
+    runs-on: ubuntu-latest
+    environment: aws-production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::145185392705:role/GitHubActionsTerraformMediaServicesRole
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.13.1
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform destroy
+        run: |
+          terraform destroy -auto-approve -input=false \
+            -var="aws_region=us-east-1" \
+            -var="flow_name=tf-mc-srt-listener-flow" \
+            -var="srt_port=5000"
