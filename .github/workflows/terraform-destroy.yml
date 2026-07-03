@@ -21,7 +21,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::145185392705:role/GitHubActionsTerraformMediaServicesRole
-          aws-region: us-east-1
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
@@ -34,6 +34,6 @@ jobs:
       - name: Terraform destroy
         run: |
           terraform destroy -auto-approve -input=false \
-            -var="aws_region=us-east-1" \
-            -var="flow_name=tf-mc-srt-listener-flow" \
-            -var="srt_port=5000"
+            -var="aws_region=${{ vars.AWS_REGION }}" \
+            -var="flow_name=${{ vars.FLOW_NAME }}" \
+            -var="srt_port=${{ vars.SRT_PORT }}"
