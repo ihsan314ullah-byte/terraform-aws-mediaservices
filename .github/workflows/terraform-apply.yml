@@ -11,6 +11,7 @@ jobs:
   terraform-apply:
     name: Manual Terraform Apply
     runs-on: ubuntu-latest
+    environment: aws-production
 
     steps:
       - name: Checkout repository
@@ -19,8 +20,8 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::145185392705:role/GitHubActionsTerraformMediaServicesRole
-          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::xxxxxxxxxxxx:role/GitHubActionsTerraformMediaServicesRole
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
@@ -36,9 +37,9 @@ jobs:
       - name: Terraform apply
         run: |
           terraform apply -auto-approve -input=false \
-            -var="aws_region=us-east-1" \
-            -var="flow_name=tf-mc-srt-listener-flow" \
-            -var="srt_port=5000"
+            -var="aws_region=${{ vars.AWS_REGION }}" \
+            -var="flow_name=${{ vars.FLOW_NAME }}" \
+            -var="srt_port=${{ vars.SRT_PORT }}"
 
       - name: Show Terraform outputs
         run: terraform output
