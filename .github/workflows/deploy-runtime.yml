@@ -47,8 +47,6 @@ jobs:
           JWT_SECRET=${{ secrets.RUNTIME_JWT_SECRET }}
           EOF
 
-          cat runtime.env
-
       - name: Find EC2 instance by tag
         run: |
           INSTANCE_ID=$(aws ec2 describe-instances \
@@ -62,10 +60,10 @@ jobs:
             exit 1
           fi
 
-          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+          echo "INSTANCE_ID=$INSTANCE_ID" >> "$GITHUB_ENV"
           echo "Found EC2 instance: $INSTANCE_ID"
 
-            - name: Update EC2 .env via SSM
+      - name: Update EC2 .env via SSM
         run: |
           ENV_B64=$(base64 -w0 runtime.env)
 
