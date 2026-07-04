@@ -65,27 +65,27 @@ jobs:
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
           echo "Found EC2 instance: $INSTANCE_ID"
 
-      - name: Update EC2 .env via SSM
+            - name: Update EC2 .env via SSM
         run: |
           ENV_B64=$(base64 -w0 runtime.env)
 
-          cat > ssm-script.sh <<EOF
-          set -e
-
-          echo "$ENV_B64" | base64 -d > ${{ vars.EC2_APP_DIR }}/.env
-
-          cd ${{ vars.EC2_APP_DIR }}
-
-          docker compose restart metrics-api || docker compose up -d
-
-          echo "Runtime .env updated successfully"
+          cat > ssm-parameters.json <<EOF
+          {
+            "commands": [
+              "set -e",
+              "echo '$ENV_B64' | base64 -d > ${{ vars.EC2_APP_DIR }}/.env",
+              "cd ${{ vars.EC2_APP_DIR }}",
+              "docker compose restart metrics-api || docker compose up -d",
+              "echo 'Runtime .env updated successfully'"
+            ]
+          }
           EOF
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
             --comment "Update EC2 runtime .env from Terraform outputs" \
-            --parameters commands="$(cat ssm-script.sh)" \
+            --parameters file://ssm-parameters.json \
             --query "Command.CommandId" \
             --output text \
             --region "${{ vars.AWS_REGION }}")
