@@ -111,59 +111,9 @@ Fresh JWT tokens must be generated whenever the secret changes.
 
 ## Current Deployment Flow
 
-Git Push
-
-↓
-
-Terraform CI
-
-↓
-
-Manual Terraform Apply
-
-↓
-
-Terraform State stored in Amazon S3
-
-↓
-
-Manual Deploy Runtime
-
-↓
-
-AWS Systems Manager
-
-↓
-
-EC2 `.env` updated
-
-↓
-
-metrics-api restarted
-
-↓
-
-Generate JWT Token
-
-↓
-
-Start FFmpeg
-
-↓
-
-MediaConnect
-
-↓
-
-MediaLive
-
-↓
-
-MediaPackage
-
-↓
-
-HLS / DASH Playback
+Git Push -> Terraform CI -> Manual Terraform Apply -> Terraform State stored in Amazon S3 
+-> Manual Deploy Runtime -> AWS Systems Manager -> EC2 `.env` updated -> metrics-api restarted
+-> Generate JWT Token -> Start FFmpeg -> MediaConnect -> MediaLive -> MediaPackage -> HLS / DASH Playback
 
 ## Current Project Status
 
