@@ -1,101 +1,166 @@
+# Workflow to discover all tagged instances:
+
+# Find every running EC2 with MediaRuntime=true
+#         ↓
+# Read each instance’s MediaRuntimeAppDir tag
+#         ↓
+# Confirm it is registered with SSM
+#         ↓
+# Write .env into that instance’s directory
+#         ↓
+# Recreate metrics-api
+
 name: Deploy Runtime Config
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
 permissions:
-  id-token: write
-  contents: read
+id-token: write
+contents: read
 
 jobs:
-  deploy-runtime:
-    name: Deploy Runtime Config to EC2
-    runs-on: ubuntu-latest
-    environment: aws-production
+deploy-runtime:
+name: Deploy Runtime Config to Media EC2 Instances
+runs-on: ubuntu-latest
+environment: aws-production
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+```
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::145185392705:role/GitHubActionsTerraformMediaServicesRole
-          aws-region: ${{ vars.AWS_REGION }}
+  - name: Configure AWS credentials
+    uses: aws-actions/configure-aws-credentials@v4
+    with:
+      role-to-assume: arn:aws:iam::145185392705:role/GitHubActionsTerraformMediaServicesRole
+      aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_version: 1.13.1
+  - name: Setup Terraform
+    uses: hashicorp/setup-terraform@v4
+    with:
+      terraform_version: 1.13.1
 
-      - name: Terraform init
-        run: terraform init -input=false
+  - name: Terraform init
+    run: terraform init -input=false
 
-      - name: Read Terraform outputs and generate runtime env
-        run: |
-          SRT_TARGET_IP=$(terraform output -raw source_ingest_ip)
-          SRT_TARGET_PORT=$(terraform output -raw source_ingest_port)
-          HLS_URL=$(terraform output -raw hls_endpoint_url)
-          DASH_URL=$(terraform output -raw dash_endpoint_url)
+  - name: Generate runtime environment
+    run: |
+      set -euo pipefail
 
-          cat > runtime.env <<EOF
-          SRT_TARGET_IP=$SRT_TARGET_IP
-          SRT_TARGET_PORT=$SRT_TARGET_PORT
-          SRT_LATENCY_MS=2000
-          HLS_URL=$HLS_URL
-          DASH_URL=$DASH_URL
-          JWT_SECRET=${{ secrets.RUNTIME_JWT_SECRET }}
-          EOF
+      SRT_TARGET_IP=$(terraform output -raw source_ingest_ip)
+      SRT_TARGET_PORT=$(terraform output -raw source_ingest_port)
+      HLS_URL=$(terraform output -raw hls_endpoint_url)
+      DASH_URL=$(terraform output -raw dash_endpoint_url)
 
-      - name: Find EC2 instance by tag
-        run: |
-          INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=${{ vars.EC2_TARGET_TAG_NAME }}" "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text \
-            --region "${{ vars.AWS_REGION }}")
+      cat > runtime.env <<EOF
+      SRT_TARGET_IP=$SRT_TARGET_IP
+      SRT_TARGET_PORT=$SRT_TARGET_PORT
+      SRT_LATENCY_US=2000000
+      HLS_URL=$HLS_URL
+      DASH_URL=$DASH_URL
+      JWT_SECRET=${{ secrets.RUNTIME_JWT_SECRET }}
+      EOF
 
-          if [ "$INSTANCE_ID" = "None" ] || [ -z "$INSTANCE_ID" ]; then
-            echo "No running EC2 instance found with tag Name=${{ vars.EC2_TARGET_TAG_NAME }}"
-            exit 1
-          fi
+  - name: Find tagged media runtime instances
+    run: |
+      set -euo pipefail
 
-          echo "INSTANCE_ID=$INSTANCE_ID" >> "$GITHUB_ENV"
-          echo "Found EC2 instance: $INSTANCE_ID"
+      INSTANCE_IDS=$(aws ec2 describe-instances \
+        --filters \
+          "Name=tag:MediaRuntime,Values=true" \
+          "Name=instance-state-name,Values=running" \
+        --query "Reservations[].Instances[].InstanceId" \
+        --output text \
+        --region "${{ vars.AWS_REGION }}")
 
-      - name: Update EC2 .env via SSM
-        run: |
-          ENV_B64=$(base64 -w0 runtime.env)
+      if [ -z "$INSTANCE_IDS" ] || [ "$INSTANCE_IDS" = "None" ]; then
+        echo "No running EC2 instances found with MediaRuntime=true"
+        exit 1
+      fi
 
-          cat > ssm-parameters.json <<EOF
-          {
-            "commands": [
-              "set -e",
-              "echo '$ENV_B64' | base64 -d > ${{ vars.EC2_APP_DIR }}/.env",
-              "cd ${{ vars.EC2_APP_DIR }}",
-              "docker compose restart metrics-api || docker compose up -d",
-              "echo 'Runtime .env updated successfully'"
-            ]
-          }
-          EOF
+      echo "Instances selected for runtime deployment:"
+      for INSTANCE_ID in $INSTANCE_IDS; do
+        echo "- $INSTANCE_ID"
+      done
 
-          COMMAND_ID=$(aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Update EC2 runtime .env from Terraform outputs" \
-            --parameters file://ssm-parameters.json \
-            --query "Command.CommandId" \
-            --output text \
-            --region "${{ vars.AWS_REGION }}")
+      echo "INSTANCE_IDS=$INSTANCE_IDS" >> "$GITHUB_ENV"
 
-          echo "SSM Command ID: $COMMAND_ID"
+  - name: Deploy runtime config to each instance
+    run: |
+      set -euo pipefail
 
-          aws ssm wait command-executed \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID" \
-            --region "${{ vars.AWS_REGION }}"
+      ENV_B64=$(base64 -w0 runtime.env)
 
-          aws ssm get-command-invocation \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID" \
-            --region "${{ vars.AWS_REGION }}"
+      for INSTANCE_ID in $INSTANCE_IDS; do
+        echo "Processing instance $INSTANCE_ID"
+
+        APP_DIR=$(aws ec2 describe-tags \
+          --filters \
+            "Name=resource-id,Values=$INSTANCE_ID" \
+            "Name=key,Values=MediaRuntimeAppDir" \
+          --query "Tags[0].Value" \
+          --output text \
+          --region "${{ vars.AWS_REGION }}")
+
+        if [ -z "$APP_DIR" ] || [ "$APP_DIR" = "None" ]; then
+          echo "ERROR: $INSTANCE_ID has no MediaRuntimeAppDir tag"
+          exit 1
+        fi
+
+        SSM_STATUS=$(aws ssm describe-instance-information \
+          --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+          --query "InstanceInformationList[0].PingStatus" \
+          --output text \
+          --region "${{ vars.AWS_REGION }}")
+
+        if [ "$SSM_STATUS" != "Online" ]; then
+          echo "ERROR: $INSTANCE_ID is not online in Systems Manager"
+          exit 1
+        fi
+
+        cat > ssm-parameters.json <<EOF
+      {
+        "commands": [
+          "set -e",
+          "test -d '$APP_DIR'",
+          "echo '$ENV_B64' | base64 -d > '$APP_DIR/.env'",
+          "chmod 600 '$APP_DIR/.env'",
+          "cd '$APP_DIR'",
+          "docker compose up -d --force-recreate metrics-api",
+          "docker compose ps metrics-api",
+          "echo 'Runtime environment updated successfully on $INSTANCE_ID'"
+        ]
+      }
+      EOF
+
+        COMMAND_ID=$(aws ssm send-command \
+          --instance-ids "$INSTANCE_ID" \
+          --document-name "AWS-RunShellScript" \
+          --comment "Deploy media runtime environment" \
+          --parameters file://ssm-parameters.json \
+          --query "Command.CommandId" \
+          --output text \
+          --region "${{ vars.AWS_REGION }}")
+
+        aws ssm wait command-executed \
+          --command-id "$COMMAND_ID" \
+          --instance-id "$INSTANCE_ID" \
+          --region "${{ vars.AWS_REGION }}"
+
+        aws ssm get-command-invocation \
+          --command-id "$COMMAND_ID" \
+          --instance-id "$INSTANCE_ID" \
+          --query '{
+            Status:Status,
+            Output:StandardOutputContent,
+            Error:StandardErrorContent
+          }' \
+          --output json \
+          --region "${{ vars.AWS_REGION }}"
+      done
+
+  - name: Remove generated runtime file
+    if: always()
+    run: rm -f runtime.env ssm-parameters.json
+```
