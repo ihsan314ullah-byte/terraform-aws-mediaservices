@@ -41,7 +41,7 @@ jobs:
           cat > runtime.env <<EOF
           SRT_TARGET_IP=$SRT_TARGET_IP
           SRT_TARGET_PORT=$SRT_TARGET_PORT
-          SRT_LATENCY_MS=2000
+          SRT_LATENCY_US=2000000
           HLS_URL=$HLS_URL
           DASH_URL=$DASH_URL
           JWT_SECRET=${{ secrets.RUNTIME_JWT_SECRET }}
